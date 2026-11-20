@@ -1,0 +1,24 @@
+# Node / dependências
+node_modules/
+.pnpm-store/
+
+# Variáveis de ambiente (nunca versionar credenciais)
+.env
+.env.local
+.env.*.local
+
+# Builds
+.next/
+out/
+dist/
+build/
+
+# Prisma
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Ferramentas e SO
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+npm-debug.log*

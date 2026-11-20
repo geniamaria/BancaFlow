@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Identidade visual BancaFlow — paleta fintech de alto contraste. */
+@theme {
+  /* Cores obrigatórias */
+  --color-royal: #003b71;
+  --color-vivid: #0066cc;
+  --color-turquoise: #00a6a6;
+  --color-turquoise-light: #33c2be;
+  --color-gold: #ffb800;
+  --color-canvas: #f4f7fc;
+  --color-deep: #101d35;
+  --color-white: #ffffff;
+
+  /* Derivadas para texto, superfícies e contornos (contraste e legibilidade) */
+  --color-muted: #4a5f7a;
+  --color-line: #d8e3f0;
+  --color-royal-soft: #e8f1fa;
+  --color-turquoise-soft: #dff6f4;
+  --color-turquoise-ink: #007474;
+  --color-gold-soft: #fff4d6;
+  --color-gold-ink: #7a5200;
+
+  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui,
+    -apple-system, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+
+  body {
+    @apply bg-canvas text-deep antialiased;
+  }
+
+  ::selection {
+    @apply bg-turquoise/25 text-deep;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply tracking-tight;
+  }
+}
