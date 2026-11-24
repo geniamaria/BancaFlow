@@ -1,4 +1,5 @@
 import "dotenv/config";
+import bcrypt from "bcrypt";
 import {
   AppointmentStatus,
   DocumentStatus,
@@ -11,10 +12,10 @@ import {
 
 const prisma = new PrismaClient();
 
-// Hash fictício apenas para desenvolvimento. Não é uma palavra-passe real
-// e deve ser substituído por um hash bcrypt/argon2 ao implementar autenticação.
-const DEMO_PASSWORD_HASH =
-  "$2b$12$demo0000000000000000000000000000000000000000000000000000";
+// Palavra-passe de demonstração fictícia, guardada apenas como hash bcrypt.
+// Nunca é usada nenhuma credencial real de qualquer banco.
+export const DEMO_PASSWORD = "Demo@123";
+const DEMO_PASSWORD_HASH = bcrypt.hashSync(DEMO_PASSWORD, 10);
 
 function uuid(seed: number): string {
   return `00000000-0000-4000-8000-${String(seed).padStart(12, "0")}`;

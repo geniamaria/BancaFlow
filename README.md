@@ -60,7 +60,7 @@ cd frontend && npm install
 cd ../backend && npm install
 ```
 
-> Com npm 11, os scripts de instalação podem ser bloqueados por predefinição. O `backend/package.json` já aprova os scripts necessários ao Prisma e ao esbuild. Se o Prisma Client não for gerado automaticamente, execute `npm run prisma:generate` no backend.
+> Com npm 11, os scripts de instalação podem ser bloqueados por predefinição. O `backend/package.json` já aprova os scripts necessários ao Prisma, ao esbuild e ao bcrypt. Se o Prisma Client não for gerado automaticamente, execute `npm run prisma:generate` no backend.
 
 ### Variáveis de ambiente
 
@@ -77,6 +77,11 @@ cp backend/.env.example backend/.env
 | backend | `NODE_ENV` | Ambiente de execução | `development` |
 | backend | `CORS_ORIGIN` | Origem autorizada (frontend) | `http://localhost:3000` |
 | backend | `DATABASE_URL` | Ligação PostgreSQL usada pelo Prisma | — |
+| backend | `JWT_SECRET` | Segredo dos tokens JWT (obrigatório, mínimo 16 caracteres) | — |
+| backend | `JWT_EXPIRES_IN` | Expiração do access token | `1h` |
+| backend | `BCRYPT_ROUNDS` | Custo do hash de palavra-passe | `10` |
+| backend | `RATE_LIMIT_MAX` | Pedidos por janela nas rotas de autenticação | `60` |
+| backend | `RATE_LIMIT_WINDOW_MS` | Janela do rate limiting (ms) | `900000` |
 
 > Nunca colocar credenciais reais no código ou nos ficheiros `.env.example`. Os ficheiros `.env*` locais estão ignorados pelo Git.
 
@@ -103,6 +108,13 @@ Endpoints disponíveis nesta etapa:
 | `GET` | `/` | Identificação do serviço |
 | `GET` | `/api/v1` | Lista de endpoints da API |
 | `GET` | `/api/v1/health` | Estado do serviço, ambiente e tempo de actividade |
+| `POST` | `/api/v1/auth/register` | Registo público de cliente (`CUSTOMER`) |
+| `POST` | `/api/v1/auth/login` | Login com JWT |
+| `GET` | `/api/v1/auth/me` | Utilizador autenticado (Bearer token) |
+| `POST` | `/api/v1/auth/logout` | Revogação da sessão no servidor |
+| `GET` | `/api/v1/users` | Lista de utilizadores com isolamento por banco/agência |
+
+> Detalhes completos, exemplos e estratégia de autenticação em [`backend/README.md`](backend/README.md).
 
 ---
 
@@ -138,6 +150,7 @@ npm run dev              # API com recarregamento automático (tsx watch)
 npm run build            # compilação TypeScript para dist/
 npm run start            # executar dist/server.js
 npm run typecheck        # verificação TypeScript
+npm test                 # testes de integração de autenticação
 npm run prisma:format    # formatar o schema
 npm run prisma:validate  # validar o schema
 npm run prisma:generate  # gerar o Prisma Client
@@ -162,7 +175,9 @@ npm run prisma:seed
 
 O seed é idempotente e cria dois bancos fictícios, três agências por banco,
 serviços, produtos, vídeos, documentos exigidos, utilizadores de demonstração,
-marcações, filas, senhas e documentos enviados (apenas metadados).
+marcações, filas, senhas e documentos enviados (apenas metadados). Os
+utilizadores de demonstração usam a palavra-passe fictícia `Demo@123`, guardada
+apenas como hash bcrypt.
 
 ---
 
@@ -228,7 +243,7 @@ User (cliente) ──< CustomerDocument >── RequiredDocument
 - Ficheiros não são guardados na base: apenas `storageKey` sob `private/...`,
   `mimeType`, tamanho e estados de revisão.
 
-Nenhuma destas entidades é utilizada pelas rotas nesta etapa — o objectivo é preparar a estrutura sem implementar endpoints de negócio.
+A autenticação usa estas relações para autorizar acesso por banco e agência. Os módulos de negócio (agências, serviços, marcações e documentos) ainda não têm endpoints próprios — o objectivo desta etapa foi apenas autenticação e gestão inicial de utilizadores.
 
 ---
 
@@ -236,13 +251,13 @@ Nenhuma destas entidades é utilizada pelas rotas nesta etapa — o objectivo é
 
 **Frontend:** Next.js, React, TypeScript, Tailwind CSS, class-variance-authority, clsx, tailwind-merge, @radix-ui/react-slot, lucide-react.
 
-**Backend:** Express, TypeScript, Prisma Client, cors, dotenv, tsx (desenvolvimento), Prisma CLI (desenvolvimento).
+**Backend:** Express, TypeScript, Prisma Client, bcrypt, jsonwebtoken, zod, express-rate-limit, cors, dotenv, tsx (desenvolvimento), supertest e Prisma CLI (desenvolvimento).
 
 ---
 
 ## 10. Próximas etapas (fora do âmbito actual)
 
-- Autenticação e autorização com isolamento por banco.
+- Módulos de negócio com isolamento por banco (agências, serviços, filas, marcações e documentos).
 - API REST para agências, serviços, marcações e documentos.
 - Upload seguro de ficheiros.
 - Socket.IO para filas em tempo real.

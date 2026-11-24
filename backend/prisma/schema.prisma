@@ -96,6 +96,7 @@ model User {
   documents         CustomerDocument[] @relation("CustomerDocuments")
   reviewedDocuments CustomerDocument[] @relation("ReviewedDocuments")
   queueTickets      QueueTicket[]      @relation("CustomerQueueTickets")
+  sessions          AuthSession[]
 
   @@index([bankId, role])
   @@index([role])
@@ -317,4 +318,20 @@ model QueueTicket {
   @@index([ticketNumber])
   @@index([queueId, status])
   @@index([customerId])
+}
+
+// Sessões persistentes: o JWT contém o sid e cada pedido valida este registo.
+// Isto permite revogar o token antes da sua expiração natural no logout.
+model AuthSession {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
 }
