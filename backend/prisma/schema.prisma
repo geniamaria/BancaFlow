@@ -1,6 +1,7 @@
-// Modelo de dados inicial do BancaFlow.
-// O isolamento entre bancos é feito através de `bankId` nas entidades de negócio.
-// Nesta etapa o schema é apenas estrutura: nenhuma operação de negócio está implementada.
+// Modelo de dados do BancaFlow (PostgreSQL + Prisma).
+// Isolamento multi-tenant: entidades de negócio possuem `bankId`.
+// Chaves estrangeiras compostas garantem que agência, serviço e documento
+// pertencem ao mesmo banco da marcação/fila/ficheiro correspondente.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,147 +12,309 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AppointmentStatus {
-  SCHEDULED
-  CONFIRMED
-  COMPLETED
-  CANCELLED
+enum UserRole {
+  SUPER_ADMIN
+  BANK_ADMIN
+  BRANCH_MANAGER
+  EMPLOYEE
+  CUSTOMER
 }
 
 enum DocumentStatus {
   PENDING
+  UNDER_REVIEW
   APPROVED
   REJECTED
 }
 
-enum QueueEntryStatus {
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum QueueStatus {
+  OPEN
+  PAUSED
+  CLOSED
+}
+
+enum QueueTicketStatus {
   WAITING
   CALLED
-  ATTENDED
-  ABSENT
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
 }
 
 model Bank {
-  id        String     @id @default(uuid())
-  name      String
-  code      String     @unique
-  active    Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  agencies  Agency[]
-  services  Service[]
-  customers Customer[]
-  appointments Appointment[]
+  id             String   @id @default(uuid())
+  name           String
+  slug           String   @unique
+  description    String   @db.Text
+  logo           String?
+  primaryColor   String
+  secondaryColor String
+  email          String?
+  phone          String?
+  website        String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users             User[]
+  branches          Branch[]
+  services          Service[]
+  products          BankProduct[]
+  requiredDocuments RequiredDocument[]
+  customerDocuments CustomerDocument[]
+  appointments      Appointment[]
+  queues            Queue[]
+
+  @@index([isActive])
 }
 
-model Agency {
-  id           String       @id @default(uuid())
-  bankId       String
-  bank         Bank         @relation(fields: [bankId], references: [id])
-  name         String
-  address      String
-  city         String
-  province     String
+model User {
+  id           String   @id @default(uuid())
+  fullName     String
+  email        String   @unique
+  passwordHash String
   phone        String?
-  latitude     Float
-  longitude    Float
-  active       Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  queues       Queue[]
-  appointments Appointment[]
+  role         UserRole @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  bankId       String?
+  bank         Bank?    @relation(fields: [bankId], references: [id])
+  branchId     String?
+  branch       Branch?  @relation("BranchUsers", fields: [branchId, bankId], references: [id, bankId])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
+  appointments      Appointment[]      @relation("CustomerAppointments")
+  documents         CustomerDocument[] @relation("CustomerDocuments")
+  reviewedDocuments CustomerDocument[] @relation("ReviewedDocuments")
+  queueTickets      QueueTicket[]      @relation("CustomerQueueTickets")
+
+  @@index([bankId, role])
+  @@index([role])
+  @@index([branchId])
+}
+
+model Branch {
+  id          String   @id @default(uuid())
+  bankId      String
+  bank        Bank     @relation(fields: [bankId], references: [id])
+  name        String
+  code        String
+  address     String
+  province    String
+  district    String
+  latitude    Decimal  @db.Decimal(10, 7)
+  longitude   Decimal  @db.Decimal(10, 7)
+  phone       String?
+  email       String?
+  openingTime DateTime @db.Time(6)
+  closingTime DateTime @db.Time(6)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]        @relation("BranchUsers")
+  appointments Appointment[] @relation("BranchAppointments")
+  queues       Queue[]       @relation("BranchQueues")
+
+  @@unique([bankId, code])
   @@unique([bankId, name])
-  @@index([bankId])
+  @@unique([id, bankId])
+  @@index([bankId, province])
+  @@index([bankId, isActive])
 }
 
 model Service {
+  id                       String   @id @default(uuid())
+  bankId                   String
+  bank                     Bank     @relation(fields: [bankId], references: [id])
+  name                     String
+  description              String   @db.Text
+  category                 String
+  estimatedDurationMinutes Int      @default(20)
+  requiresAppointment      Boolean  @default(true)
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  requiredDocuments RequiredDocument[] @relation("ServiceDocuments")
+  appointments      Appointment[]      @relation("ServiceAppointments")
+  queues            Queue[]            @relation("ServiceQueues")
+
+  @@unique([bankId, name])
+  @@unique([id, bankId])
+  @@index([bankId, isActive])
+  @@index([bankId, category])
+}
+
+model BankProduct {
+  id             String   @id @default(uuid())
+  bankId         String
+  bank           Bank     @relation(fields: [bankId], references: [id])
+  name           String
+  slug           String
+  description    String   @db.Text
+  category       String
+  targetAudience String
+  advantages     String[]
+  fees           Decimal? @db.Decimal(12, 2)
+  currency       String   @default("MZN")
+  requirements   String[]
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  videos            ProductVideo[]
+  requiredDocuments RequiredDocument[] @relation("ProductDocuments")
+
+  @@unique([bankId, slug])
+  @@unique([bankId, name])
+  @@index([bankId, isActive])
+  @@index([bankId, category])
+}
+
+model ProductVideo {
+  id           String      @id @default(uuid())
+  productId    String
+  product      BankProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title        String
+  description  String      @db.Text
+  videoUrl     String
+  thumbnailUrl String
+  duration     Int
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+
+  @@unique([productId, title])
+  @@index([productId])
+}
+
+model RequiredDocument {
   id              String       @id @default(uuid())
-  bankId          String?
-  bank            Bank?        @relation(fields: [bankId], references: [id])
+  bankId          String
+  bank            Bank         @relation(fields: [bankId], references: [id])
+  serviceId       String?
+  service         Service?     @relation("ServiceDocuments", fields: [serviceId], references: [id], onDelete: SetNull)
+  productId       String?
+  product         BankProduct? @relation("ProductDocuments", fields: [productId], references: [id], onDelete: SetNull)
   name            String
   description     String       @db.Text
-  category        String
-  durationMinutes Int          @default(20)
-  active          Boolean      @default(true)
+  isMandatory     Boolean      @default(true)
+  acceptedFormats String[]
+  maxFileSizeMB   Int          @default(5)
+  isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
-  appointments    Appointment[]
 
-  // bankId nulo representa um serviço comum a todas as instituições.
-  @@unique([bankId, name])
-  @@index([bankId])
+  customerDocuments CustomerDocument[]
+
+  // Usada pela chave estrangeira composta em CustomerDocument:
+  // um ficheiro só pode referenciar um documento exigido do mesmo banco.
+  @@unique([id, bankId])
+  @@index([bankId, serviceId])
+  @@index([bankId, productId])
+  @@index([bankId, isActive])
 }
 
-model Customer {
-  id           String       @id @default(uuid())
-  bankId       String
-  bank         Bank         @relation(fields: [bankId], references: [id])
-  fullName     String
-  email        String
-  phone        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  documents    Document[]
-  appointments Appointment[]
+model CustomerDocument {
+  id                 String           @id @default(uuid())
+  customerId         String
+  customer           User             @relation("CustomerDocuments", fields: [customerId], references: [id], onDelete: Cascade)
+  bankId             String
+  bank               Bank             @relation(fields: [bankId], references: [id])
+  requiredDocumentId String
+  requiredDocument   RequiredDocument @relation(fields: [requiredDocumentId, bankId], references: [id, bankId])
+  fileName           String
+  storageKey         String           @unique
+  mimeType           String
+  fileSize           Int
+  status             DocumentStatus   @default(PENDING)
+  rejectionReason    String?          @db.Text
+  uploadedAt         DateTime         @default(now())
+  reviewedAt         DateTime?
+  reviewedById       String?
+  reviewedBy         User?            @relation("ReviewedDocuments", fields: [reviewedById], references: [id])
 
-  // O mesmo email pode existir em bancos diferentes, mas não dentro do mesmo banco.
-  @@unique([bankId, email])
-  @@index([bankId])
-}
-
-model Document {
-  id         String         @id @default(uuid())
-  customerId String
-  customer   Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  type       String
-  storageKey String
-  status     DocumentStatus @default(PENDING)
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-
-  @@index([customerId])
-}
-
-model Queue {
-  id        String       @id @default(uuid())
-  agencyId  String
-  agency    Agency       @relation(fields: [agencyId], references: [id])
-  updatedAt DateTime     @updatedAt
-  entries   QueueEntry[]
-
-  @@unique([agencyId])
-}
-
-model QueueEntry {
-  id          String           @id @default(uuid())
-  queueId     String
-  queue       Queue            @relation(fields: [queueId], references: [id], onDelete: Cascade)
-  ticketNumber String
-  status      QueueEntryStatus @default(WAITING)
-  createdAt   DateTime         @default(now())
-  calledAt    DateTime?
-
-  @@unique([queueId, ticketNumber])
-  @@index([queueId, status])
+  @@index([bankId, customerId])
+  @@index([bankId, status])
+  @@index([customerId, uploadedAt])
+  @@index([reviewedById])
 }
 
 model Appointment {
-  id          String            @id @default(uuid())
-  bankId      String
-  bank        Bank              @relation(fields: [bankId], references: [id])
-  agencyId    String
-  agency      Agency            @relation(fields: [agencyId], references: [id])
-  customerId  String
-  customer    Customer          @relation(fields: [customerId], references: [id])
-  serviceId   String
-  service     Service           @relation(fields: [serviceId], references: [id])
-  scheduledAt DateTime
-  status      AppointmentStatus @default(SCHEDULED)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id              String            @id @default(uuid())
+  customerId      String
+  customer        User              @relation("CustomerAppointments", fields: [customerId], references: [id], onDelete: Cascade)
+  bankId          String
+  bank            Bank              @relation(fields: [bankId], references: [id])
+  branchId        String
+  branch          Branch            @relation("BranchAppointments", fields: [branchId, bankId], references: [id, bankId])
+  serviceId       String
+  service         Service           @relation("ServiceAppointments", fields: [serviceId, bankId], references: [id, bankId])
+  appointmentDate DateTime          @db.Date
+  startTime       DateTime          @db.Time(6)
+  endTime         DateTime          @db.Time(6)
+  status          AppointmentStatus @default(PENDING)
+  notes           String?           @db.Text
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
-  @@index([bankId, scheduledAt])
-  @@index([agencyId, scheduledAt])
+  @@unique([customerId, appointmentDate, startTime])
+  @@index([bankId, appointmentDate])
+  @@index([bankId, status])
+  @@index([branchId, appointmentDate])
+  @@index([serviceId])
+}
+
+model Queue {
+  id        String      @id @default(uuid())
+  bankId    String
+  bank      Bank        @relation(fields: [bankId], references: [id])
+  branchId  String
+  branch    Branch      @relation("BranchQueues", fields: [branchId, bankId], references: [id, bankId])
+  serviceId String
+  service   Service     @relation("ServiceQueues", fields: [serviceId, bankId], references: [id, bankId])
+  name      String
+  date      DateTime    @db.Date
+  status    QueueStatus @default(OPEN)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  tickets QueueTicket[]
+
+  @@unique([branchId, serviceId, date, name])
+  @@index([bankId, date])
+  @@index([bankId, status])
+  @@index([branchId, date])
+  @@index([serviceId])
+}
+
+model QueueTicket {
+  id                   String            @id @default(uuid())
+  queueId              String
+  queue                Queue             @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  customerId           String
+  customer             User              @relation("CustomerQueueTickets", fields: [customerId], references: [id])
+  ticketNumber         String
+  position             Int
+  status               QueueTicketStatus @default(WAITING)
+  estimatedWaitMinutes Int               @default(0)
+  calledAt             DateTime?
+  attendedAt           DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([queueId, ticketNumber])
+  @@unique([queueId, position])
+  @@index([ticketNumber])
+  @@index([queueId, status])
   @@index([customerId])
 }

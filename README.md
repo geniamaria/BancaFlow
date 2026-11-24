@@ -48,7 +48,7 @@ Cada aplicação tem `package.json`, `tsconfig.json` e dependências próprios.
 
 - Node.js 20 ou superior (testado com Node 24)
 - npm 10 ou superior
-- PostgreSQL 14 ou superior (necessário apenas quando o Prisma for ligado a uma base real)
+- PostgreSQL 14 ou superior (necessário para migration, seed e validação relacional)
 
 ---
 
@@ -138,16 +138,31 @@ npm run dev              # API com recarregamento automático (tsx watch)
 npm run build            # compilação TypeScript para dist/
 npm run start            # executar dist/server.js
 npm run typecheck        # verificação TypeScript
+npm run prisma:format    # formatar o schema
 npm run prisma:validate  # validar o schema
 npm run prisma:generate  # gerar o Prisma Client
+npm run prisma:migrate   # criar/aplicar migrações em desenvolvimento
+npm run prisma:seed      # executar dados fictícios de desenvolvimento
+npm run db:setup         # migration inicial + seed
+npm run db:reset         # repor base de desenvolvimento e voltar a semear
 ```
 
-Para criar a primeira migração quando o PostgreSQL estiver disponível:
+### Base de dados
+
+Com o PostgreSQL activo e o `backend/.env` configurado:
 
 ```bash
 cd backend
-npx prisma migrate dev --name init
+npm run prisma:format
+npm run prisma:validate
+npm run prisma:generate
+npm run prisma:migrate -- --name init
+npm run prisma:seed
 ```
+
+O seed é idempotente e cria dois bancos fictícios, três agências por banco,
+serviços, produtos, vídeos, documentos exigidos, utilizadores de demonstração,
+marcações, filas, senhas e documentos enviados (apenas metadados).
 
 ---
 
@@ -169,9 +184,51 @@ Os valores estão declarados como tokens Tailwind em `frontend/app/globals.css` 
 
 ## 8. Modelo de dados
 
-O schema inicial em `backend/prisma/schema.prisma` cobre: bancos, agências, serviços, clientes, documentos, filas, entradas de fila e atendimentos. O isolamento entre bancos é feito por `bankId`, incluindo restrições como `@@unique([bankId, email])` para clientes.
+O schema completo está em `backend/prisma/schema.prisma`, a configuração da CLI em `backend/prisma.config.ts` e a migração inicial em `backend/prisma/migrations/`. O modelo usa PostgreSQL, UUID, enums, índices e regras de unicidade.
 
-Nenhuma destas entidades é utilizada pelas rotas nesta etapa — o objectivo é preparar a estrutura sem implementar regras de negócio.
+| Modelo | Finalidade |
+| --- | --- |
+| `Bank` | Instituição bancária com slug único e identificadores visuais |
+| `User` | Utilizadores com perfil (`SUPER_ADMIN`, `BANK_ADMIN`, `BRANCH_MANAGER`, `EMPLOYEE`, `CUSTOMER`) |
+| `Branch` | Agência pertencente a um banco |
+| `Service` | Serviço oferecido por um banco |
+| `BankProduct` | Produto bancário com taxas em `Decimal`, vantagens e requisitos |
+| `ProductVideo` | Vídeo explicativo associado a um produto |
+| `RequiredDocument` | Documento exigido por um serviço **ou** por um produto |
+| `CustomerDocument` | Metadados e `storageKey` privado de um ficheiro enviado |
+| `Appointment` | Marcação de atendimento com intervalo e estado |
+| `Queue` | Fila de um serviço numa agência, com data e estado |
+| `QueueTicket` | Senha digital com posição, estado e tempos de chamada/atendimento |
+
+### Relacionamentos principais
+
+```text
+Bank ──< Branch ──< Queue ──< QueueTicket
+  │       └──────< Appointment >── User (cliente)
+  ├──────< Service ──< Appointment
+  │          └──────< RequiredDocument
+  ├──────< BankProduct ──< ProductVideo
+  │            └───────< RequiredDocument
+  └──────< User (administradores)
+User (cliente) ──< CustomerDocument >── RequiredDocument
+```
+
+### Isolamento por banco
+
+- Entidades de negócio possuem `bankId` e índices compostos para pesquisas rápidas.
+- `Appointment`, `Queue` e `CustomerDocument` usam chaves estrangeiras compostas
+  (`branchId + bankId`, `serviceId + bankId`, `requiredDocumentId + bankId`),
+  impedindo referências cruzadas entre bancos.
+- Utilizadores administrativos têm `bankId` e, quando aplicável, `branchId`;
+  a chave composta `branchId + bankId` impede um gestor de agência de outro banco.
+- Clientes são contas globais (`bankId` nulo) e podem interagir com vários bancos
+  sem duplicação de utilizador.
+- Um `RequiredDocument` só pode pertencer a um serviço **ou** a um produto,
+  garantido por restrição `CHECK` na migration inicial.
+- Ficheiros não são guardados na base: apenas `storageKey` sob `private/...`,
+  `mimeType`, tamanho e estados de revisão.
+
+Nenhuma destas entidades é utilizada pelas rotas nesta etapa — o objectivo é preparar a estrutura sem implementar endpoints de negócio.
 
 ---
 
