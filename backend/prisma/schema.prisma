@@ -73,6 +73,7 @@ model Bank {
   customerDocuments CustomerDocument[]
   appointments      Appointment[]
   queues            Queue[]
+  branchAssignments UserBranchAssignment[]
 
   @@index([isActive])
 }
@@ -92,12 +93,16 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  appointments      Appointment[]      @relation("CustomerAppointments")
-  documents         CustomerDocument[] @relation("CustomerDocuments")
-  reviewedDocuments CustomerDocument[] @relation("ReviewedDocuments")
-  queueTickets      QueueTicket[]      @relation("CustomerQueueTickets")
+  appointments      Appointment[]          @relation("CustomerAppointments")
+  documents         CustomerDocument[]     @relation("CustomerDocuments")
+  reviewedDocuments CustomerDocument[]     @relation("ReviewedDocuments")
+  queueTickets      QueueTicket[]          @relation("CustomerQueueTickets")
   sessions          AuthSession[]
+  branchAssignments UserBranchAssignment[] @relation("AssignmentUser")
+  bankAssignments   UserBranchAssignment[] @relation("AssignmentUserBank")
 
+  // Permite FK composta (userId, bankId) nas associações de agência.
+  @@unique([id, bankId])
   @@index([bankId, role])
   @@index([role])
   @@index([branchId])
@@ -110,6 +115,7 @@ model Branch {
   name        String
   code        String
   address     String
+  city        String?
   province    String
   district    String
   latitude    Decimal  @db.Decimal(10, 7)
@@ -122,9 +128,10 @@ model Branch {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users        User[]        @relation("BranchUsers")
-  appointments Appointment[] @relation("BranchAppointments")
-  queues       Queue[]       @relation("BranchQueues")
+  users        User[]                 @relation("BranchUsers")
+  appointments Appointment[]          @relation("BranchAppointments")
+  queues       Queue[]                @relation("BranchQueues")
+  assignments  UserBranchAssignment[]
 
   @@unique([bankId, code])
   @@unique([bankId, name])
@@ -334,4 +341,27 @@ model AuthSession {
   @@index([userId])
   @@index([expiresAt])
   @@index([revokedAt])
+}
+
+// Associação multi-agência: um gestor/funcionário pode estar ligado a várias
+// agências do mesmo banco, cada uma com o seu próprio papel e estado.
+model UserBranchAssignment {
+  id        String   @id @default(uuid())
+  userId    String
+  bankId    String
+  branchId  String
+  role      UserRole
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User   @relation("AssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  userBank User   @relation("AssignmentUserBank", fields: [userId, bankId], references: [id, bankId], onDelete: Cascade)
+  bank     Bank   @relation(fields: [bankId], references: [id])
+  branch   Branch @relation(fields: [branchId, bankId], references: [id, bankId], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([bankId, branchId])
+  @@index([userId, isActive])
+  @@index([branchId, isActive])
 }

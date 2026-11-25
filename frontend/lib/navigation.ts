@@ -1,3 +1,5 @@
+import type { UserRole } from "@/lib/api";
+
 export interface NavItem {
   label: string;
   href: string;
@@ -29,10 +31,38 @@ export const clientSidebarItems: SidebarItem[] = [
   { label: "Atendimentos", href: "/dashboard", soon: true },
 ];
 
-export const adminSidebarItems: SidebarItem[] = [
-  { label: "Visão geral", href: "/admin" },
-  { label: "Agências", href: "/agencias" },
-  { label: "Serviços e produtos", href: "/servicos" },
-  { label: "Clientes", href: "/admin", soon: true },
-  { label: "Relatórios", href: "/admin", soon: true },
-];
+export function getAdminSidebarItems(role: UserRole | null | undefined): SidebarItem[] {
+  if (role === "SUPER_ADMIN") {
+    return [
+      { label: "Visão geral", href: "/admin" },
+      { label: "Bancos", href: "/admin/bancos" },
+      { label: "Agências", href: "/admin/agencias" },
+    ];
+  }
+
+  if (role === "BANK_ADMIN") {
+    return [
+      { label: "Visão geral", href: "/admin" },
+      { label: "Bancos", href: "/admin/bancos" },
+      { label: "Agências", href: "/admin/agencias" },
+    ];
+  }
+
+  if (role === "BRANCH_MANAGER" || role === "EMPLOYEE") {
+    return [
+      { label: "Visão geral", href: "/admin" },
+      { label: "Minhas agências", href: "/admin/minhas-agencias" },
+    ];
+  }
+
+  return [{ label: "Visão geral", href: "/admin" }];
+}
+
+export function canAccessAdmin(role: UserRole | null | undefined): boolean {
+  return (
+    role === "SUPER_ADMIN" ||
+    role === "BANK_ADMIN" ||
+    role === "BRANCH_MANAGER" ||
+    role === "EMPLOYEE"
+  );
+}

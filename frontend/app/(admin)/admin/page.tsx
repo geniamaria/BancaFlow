@@ -1,22 +1,89 @@
-import { Activity, Bell, Building2, Layers3, Settings2 } from "lucide-react";
-import { DemoNotice } from "@/components/features/demo-notice";
-import { QueueStatusBadge } from "@/components/features/queue-status-badge";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Building2, GitBranch, ShieldCheck, Activity } from "lucide-react";
 import { StatCard } from "@/components/features/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { adminMetrics, demoAgencies, demoBanks } from "@/lib/demo-data";
+import { EmptyState, ErrorState, LoadingState } from "@/components/admin/page-state";
+import {
+  apiFetch,
+  getStoredUser,
+  toTimeInput,
+  type BankDto,
+  type BranchDto,
+  type UserDto,
+} from "@/lib/api";
 
-const metricIcons = [Building2, Layers3, Settings2, Layers3];
-const metricAccents = ["royal", "vivid", "turquoise", "gold"] as const;
-
-const nextModules = [
-  "Gestão de utilizadores e permissões",
-  "Relatórios de atendimento por banco",
-  "Actualizações de filas com Socket.IO",
-  "Armazenamento seguro de documentos",
-];
+interface DashboardData {
+  banks: BankDto[];
+  branches: BranchDto[];
+}
 
 export default function AdminPage() {
+  const [user, setUser] = useState<UserDto | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (currentUser: UserDto) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const banksRes = await apiFetch<{ data: BankDto[] }>("/banks");
+      const banks = banksRes.data ?? [];
+
+      let branches: BranchDto[] = [];
+      if (currentUser.role === "SUPER_ADMIN") {
+        const branchLists = await Promise.all(
+          banks.map(async (bank) => {
+            try {
+              const res = await apiFetch<{ data: BranchDto[] }>(`/banks/${bank.id}/branches`);
+              return res.data ?? [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+        branches = branchLists.flat();
+      } else if (currentUser.bankId) {
+        const res = await apiFetch<{ data: BranchDto[] }>(
+          `/banks/${currentUser.bankId}/branches`,
+        );
+        branches = res.data ?? [];
+      }
+
+      setData({ banks, branches });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível carregar os dados.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const stored = getStoredUser();
+    setUser(stored);
+    if (stored) {
+      void load(stored);
+    } else {
+      setLoading(false);
+    }
+  }, [load]);
+
+  const metrics = useMemo(() => {
+    if (!data) return null;
+    const activeBanks = data.banks.filter((b) => b.isActive).length;
+    const activeBranches = data.branches.filter((b) => b.isActive).length;
+    const totalBranches = data.banks.reduce((sum, b) => sum + (b.branchCount ?? 0), 0);
+    return {
+      totalBanks: data.banks.length,
+      activeBanks,
+      totalBranches: data.branches.length > 0 ? data.branches.length : totalBranches,
+      activeBranches: data.branches.length > 0 ? activeBranches : totalBranches,
+    };
+  }, [data]);
+
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-2xl bg-royal p-6 text-white sm:p-7">
@@ -29,119 +96,127 @@ export default function AdminPage() {
             </p>
             <h2 className="mt-2 text-2xl font-bold">Resumo operacional</h2>
             <p className="mt-2 max-w-xl text-sm text-white/70">
-              Indicadores ilustrativos do funcionamento da plataforma.
+              Indicadores obtidos da plataforma BancaFlow.
             </p>
           </div>
-          <DemoNotice />
+          {user && (
+            <Badge variant="vivid">{user.role.replace(/_/g, " ")}</Badge>
+          )}
         </div>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {adminMetrics.map((metric, index) => {
-          const Icon = metricIcons[index];
-          return (
+      {loading && <LoadingState label="A carregar painel..." />}
+      {error && <ErrorState message={error} onRetry={() => user && void load(user)} />}
+
+      {!loading && !error && metrics && data && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
-              key={metric.label}
-              label={metric.label}
-              value={metric.value}
-              detail={metric.detail}
-              icon={Icon}
-              accent={metricAccents[index]}
+              label="Bancos"
+              value={String(metrics.totalBanks)}
+              detail={`${metrics.activeBanks} activo(s)`}
+              icon={Building2}
+              accent="royal"
             />
-          );
-        })}
-      </div>
+            <StatCard
+              label="Agências"
+              value={String(metrics.totalBranches)}
+              detail={`${metrics.activeBranches} activa(s)`}
+              icon={GitBranch}
+              accent="vivid"
+            />
+            <StatCard
+              label="Bancos activos"
+              value={String(metrics.activeBanks)}
+              detail="Com acesso à plataforma"
+              icon={ShieldCheck}
+              accent="turquoise"
+            />
+            <StatCard
+              label="Agências activas"
+              value={String(metrics.activeBranches)}
+              detail="Disponíveis para atendimento"
+              icon={Activity}
+              accent="gold"
+            />
+          </div>
 
-      <div className="flex items-center gap-3 rounded-xl bg-gold-soft px-4 py-3 text-sm font-semibold text-gold-ink ring-1 ring-gold/40">
-        <Bell aria-hidden="true" className="h-4 w-4 shrink-0" />
-        27 pedidos de actualização de dados aguardam validação.
-      </div>
+          <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
+            <Card>
+              <CardHeader className="border-b border-line">
+                <CardTitle>Agências</CardTitle>
+                <p className="mt-1 text-sm text-muted">Agências obtidas da API.</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                {data.branches.length === 0 ? (
+                  <div className="p-5">
+                    <EmptyState
+                      title="Sem agências"
+                      description="Não existem agências para apresentar."
+                    />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-left text-sm">
+                      <thead className="bg-royal-soft text-xs font-bold uppercase tracking-wide text-royal">
+                        <tr>
+                          <th scope="col" className="px-5 py-3 font-medium">Agência</th>
+                          <th scope="col" className="px-5 py-3 font-medium">Cidade</th>
+                          <th scope="col" className="px-5 py-3 font-medium">Horário</th>
+                          <th scope="col" className="px-5 py-3 font-medium">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-line">
+                        {data.branches.slice(0, 8).map((branch) => (
+                          <tr key={branch.id}>
+                            <td className="px-5 py-3 font-medium text-deep">{branch.name}</td>
+                            <td className="px-5 py-3 text-muted">{branch.city}</td>
+                            <td className="px-5 py-3 text-muted">
+                              {toTimeInput(branch.openingTime)} - {toTimeInput(branch.closingTime)}
+                            </td>
+                            <td className="px-5 py-3">
+                              <Badge variant={branch.isActive ? "success" : "neutral"}>
+                                {branch.isActive ? "Activa" : "Inactiva"}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-      <div className="grid gap-5 xl:grid-cols-[1.5fr_0.75fr]">
-        <Card>
-          <CardHeader className="border-b border-line">
-            <CardTitle>Movimento por agência</CardTitle>
-            <p className="mt-1 text-sm text-muted">
-              Estado das filas nas agências demonstrativas.
-            </p>
-          </CardHeader>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="bg-royal-soft text-xs font-bold uppercase tracking-wide text-royal">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Agência</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Banco</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Cidade</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Espera</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {demoAgencies.map((agency) => (
-                  <tr key={agency.id}>
-                    <td className="px-5 py-3 font-medium text-deep">{agency.name}</td>
-                    <td className="px-5 py-3 text-muted">{agency.bank}</td>
-                    <td className="px-5 py-3 text-muted">{agency.city}</td>
-                    <td className="px-5 py-3 text-deep">
-                      {agency.waitMinutes === 0 ? "—" : `${agency.waitMinutes} min`}
-                    </td>
-                    <td className="px-5 py-3">
-                      <QueueStatusBadge level={agency.level} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b border-line">
-            <CardTitle>Instituições</CardTitle>
-            <p className="mt-1 text-sm text-muted">
-              Isolamento de dados por banco no modelo de dados.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-5">
-            {demoBanks.map((bank) => (
-              <div
-                key={bank.id}
-                className="flex items-center justify-between rounded-lg border border-line px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium text-deep">{bank.name}</p>
-                  <p className="text-xs text-muted">{bank.agencyCount} agências</p>
-                </div>
-                <Badge variant="success">activo</Badge>
-              </div>
-            ))}
-            <p className="pt-2 text-xs leading-relaxed text-muted">
-              Os nomes apresentados são fictícios e servem apenas para ilustrar a
-              separação entre instituições.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="border-b border-line">
-          <CardTitle>Módulos planeados</CardTitle>
-          <p className="mt-1 text-sm text-muted">
-            Funcionalidades previstas, ainda não implementadas nesta etapa.
-          </p>
-        </CardHeader>
-        <CardContent className="grid gap-3 pt-5 sm:grid-cols-2">
-          {nextModules.map((module) => (
-            <div
-              key={module}
-              className="flex items-center justify-between gap-3 rounded-lg bg-canvas px-4 py-3"
-            >
-              <span className="text-sm text-deep">{module}</span>
-              <Badge variant="neutral">planeado</Badge>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+            <Card>
+              <CardHeader className="border-b border-line">
+                <CardTitle>Bancos</CardTitle>
+                <p className="mt-1 text-sm text-muted">Instituições visíveis para o seu perfil.</p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-5">
+                {data.banks.length === 0 ? (
+                  <EmptyState title="Sem bancos" description="Nenhum banco encontrado." />
+                ) : (
+                  data.banks.map((bank) => (
+                    <div
+                      key={bank.id}
+                      className="flex items-center justify-between rounded-lg border border-line px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-deep">{bank.name}</p>
+                        <p className="text-xs text-muted">{bank.branchCount} agências</p>
+                      </div>
+                      <Badge variant={bank.isActive ? "success" : "neutral"}>
+                        {bank.isActive ? "Activo" : "Inactivo"}
+                      </Badge>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,20 +1,50 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CircleHelp, LayoutGrid, ShieldCheck } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowLeft, CircleHelp, LayoutGrid, LogOut, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import {
-  adminSidebarItems,
+  canAccessAdmin,
   clientSidebarItems,
+  getAdminSidebarItems,
   type SidebarItem,
 } from "@/lib/navigation";
+import { clearAuth, getStoredUser, type UserDto } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface AppShellProps {
   variant: "client" | "admin";
   title: string;
   description: string;
-  activeHref: string;
+  activeHref?: string;
   children: ReactNode;
+}
+
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === "/admin" || href === "/dashboard") {
+    return pathname === href;
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function roleLabel(role: UserDto["role"] | undefined): string {
+  switch (role) {
+    case "SUPER_ADMIN":
+      return "Super administrador";
+    case "BANK_ADMIN":
+      return "Administrador do banco";
+    case "BRANCH_MANAGER":
+      return "Gestor de agência";
+    case "EMPLOYEE":
+      return "Funcionário";
+    case "CUSTOMER":
+      return "Cliente";
+    default:
+      return "Utilizador";
+  }
 }
 
 export function AppShell({
@@ -24,10 +54,47 @@ export function AppShell({
   activeHref,
   children,
 }: AppShellProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<UserDto | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const stored = getStoredUser();
+    setUser(stored);
+    setReady(true);
+
+    if (variant === "admin") {
+      if (!stored || !canAccessAdmin(stored.role)) {
+        router.replace("/entrar");
+      }
+    }
+  }, [variant, router]);
+
   const isAdmin = variant === "admin";
-  const items: SidebarItem[] = isAdmin ? adminSidebarItems : clientSidebarItems;
+  const items: SidebarItem[] = useMemo(() => {
+    if (!isAdmin) return clientSidebarItems;
+    return getAdminSidebarItems(user?.role);
+  }, [isAdmin, user?.role]);
+
   const sectionLabel = isAdmin ? "GESTÃO" : "ÁREA DO CLIENTE";
-  const userLabel = isAdmin ? "Operador administrativo" : "Cliente demonstrativo";
+  const userLabel = user?.fullName || (isAdmin ? "Operador administrativo" : "Cliente");
+  const userSubLabel = user ? roleLabel(user.role) : "Sessão não autenticada";
+
+  function handleLogout() {
+    clearAuth();
+    router.push("/entrar");
+  }
+
+  const currentPath = pathname || activeHref || "";
+
+  if (isAdmin && (!ready || !user || !canAccessAdmin(user.role))) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas text-sm text-muted">
+        A carregar...
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
@@ -35,7 +102,7 @@ export function AppShell({
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
           <Logo inverse />
           <span className="rounded-full bg-vivid/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-turquoise-light">
-            Demo
+            {isAdmin ? "Admin" : "Demo"}
           </span>
         </div>
 
@@ -45,7 +112,7 @@ export function AppShell({
           </p>
           <ul className="space-y-1">
             {items.map((item) => {
-              const active = !item.soon && item.href === activeHref;
+              const active = !item.soon && isActivePath(currentPath, item.href);
               const content = (
                 <>
                   <span>{item.label}</span>
@@ -83,7 +150,7 @@ export function AppShell({
           </ul>
         </nav>
 
-        <div className="hidden border-t border-white/10 px-5 py-5 lg:block">
+        <div className="border-t border-white/10 px-5 py-5">
           <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3 ring-1 ring-white/10">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-turquoise/15 text-turquoise">
               {isAdmin ? (
@@ -92,11 +159,21 @@ export function AppShell({
                 <LayoutGrid className="h-4 w-4" />
               )}
             </span>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-white">{userLabel}</p>
-              <p className="text-xs text-white/50">Sessão de demonstração</p>
+              <p className="truncate text-xs text-white/50">{userSubLabel}</p>
             </div>
           </div>
+          {user && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+              Terminar sessão
+            </button>
+          )}
         </div>
       </aside>
 
@@ -120,7 +197,7 @@ export function AppShell({
             <span className="hidden h-6 w-px bg-line sm:block" />
             <span className="hidden items-center gap-1.5 text-sm text-muted sm:inline-flex">
               <CircleHelp className="h-4 w-4 text-royal" />
-              Estrutura inicial
+              {isAdmin ? "Gestão administrativa" : "Área do cliente"}
             </span>
           </div>
         </header>
